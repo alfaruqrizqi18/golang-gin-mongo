@@ -10,6 +10,5 @@ func MainRoute() {
 	{
 		v1.POST("/student", controller.StoreStudent)
 	}
-
 	router.Run()
 }
