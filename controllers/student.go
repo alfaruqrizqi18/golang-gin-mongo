@@ -5,7 +5,6 @@ import (
 	structs "golang-gin-mongo/structs"
 	"log"
 	"net/http"
-	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -22,40 +21,93 @@ func init() {
 }
 
 func GetAllStudent(c *gin.Context) {
-	var student []structs.Student
 	first_name := c.DefaultQuery("first_name", "")
 
 	if strings.EqualFold(first_name, "") {
+		var student []structs.Student
 
-		error := studentCollection.Find(nil).All(&student)
+		error := studentCollection.Find(nil).Sort("-$natural").All(&student)
 		if error != nil {
-			log.Fatal(error)
+			log.Fatal(error.Error())
 		}
-		c.JSON(http.StatusOK, gin.H{
-			"status":  http.StatusOK,
-			"message": "student data",
-			"data":    student,
-		})
+
+		if len(student) == 0 {
+			c.JSON(http.StatusNotFound, gin.H{
+				"status":  http.StatusNotFound,
+				"message": "student not found",
+				"data":    nil,
+			})
+		} else {
+			c.JSON(http.StatusOK, gin.H{
+				"status":  http.StatusOK,
+				"message": "student data",
+				"data":    student,
+			})
+		}
 
 	} else {
 
-		var detailStudent = structs.Student{}
-		first_name := c.DefaultQuery("first_name", "")
-		error := studentCollection.Find(bson.M{"first_name": &first_name}).One(&detailStudent)
+		var student []structs.Student
+		// first_name := c.DefaultQuery("first_name", "")
+		error := studentCollection.
+			Find(bson.M{"first_name": bson.RegEx{Pattern: first_name, Options: "i"}}). // options i adalah untuk ignore case
+			All(&student)
 		if error != nil {
-			log.Fatal(error)
+			log.Fatal(error.Error())
 		}
-		c.JSON(http.StatusOK, gin.H{
-			"status":  http.StatusOK,
-			"message": "detail student",
-			"data":    detailStudent,
+		if len(student) > 0 {
+			c.JSON(http.StatusOK, gin.H{
+				"status":  http.StatusOK,
+				"message": "similar student",
+				"data":    student,
+			})
+		} else {
+			c.JSON(http.StatusNotFound, gin.H{
+				"status":  http.StatusNotFound,
+				"message": "similar student not found",
+				"data":    nil,
+			})
+		}
+	}
+
+}
+
+func GetSingleStudentById(c *gin.Context) {
+	var detailStudent = structs.Student{}
+	if bson.IsObjectIdHex(c.Param("id")) { // validate id is ObjectIdHex
+		id := bson.ObjectIdHex(c.Param("id"))
+		error := studentCollection.FindId(id).One(&detailStudent)
+
+		if error != nil {
+			log.Fatal(error.Error())
+		}
+
+		if detailStudent != (structs.Student{}) {
+			c.JSON(http.StatusOK, gin.H{
+				"status":  http.StatusOK,
+				"message": "detail student found",
+				"data":    detailStudent,
+			})
+		} else {
+			c.JSON(http.StatusNotFound, gin.H{
+				"status":  http.StatusNotFound,
+				"message": "student not found",
+				"data":    nil,
+			})
+		}
+
+	} else { // validate false
+		c.JSON(http.StatusBadRequest, gin.H{
+			"status":  http.StatusBadRequest,
+			"message": "id is not valid",
+			"data":    nil,
 		})
 	}
 
 }
 
 func StoreStudent(c *gin.Context) {
-	id, _ := strconv.Atoi(c.PostForm("id"))
+	id := bson.NewObjectId()
 	first_name := c.PostForm("first_name")
 	last_name := c.PostForm("last_name")
 	created_at := c.PostForm("created_at")
@@ -64,28 +116,43 @@ func StoreStudent(c *gin.Context) {
 	error := studentCollection.Insert(&storeStudent)
 
 	if error != nil {
+		log.Fatal(error.Error())
 	}
 
 	c.JSON(http.StatusCreated, gin.H{
 		"status":  http.StatusCreated,
 		"message": "new student created successfully",
+		"data":    storeStudent,
 	})
 }
 
 func DeleteStudent(c *gin.Context) {
-	var beforeDelete, afterDelete []structs.Student
+	if bson.IsObjectIdHex(c.Param("id")) {
+		var beforeDelete, afterDelete []structs.Student
 
-	first_name := c.Param("first_name")
-	studentCollection.Find(nil).All(&beforeDelete)
-	error := studentCollection.Remove(bson.M{"first_name": first_name})
-	studentCollection.Find(nil).All(&afterDelete)
-	if error != nil {
-		log.Fatal(error)
+		id := bson.ObjectIdHex(c.Param("id"))
+		studentCollection.Find(nil).Sort("-$natural").All(&beforeDelete)
+		error := studentCollection.RemoveId(id)
+		studentCollection.Find(nil).Sort("-$natural").All(&afterDelete)
+		if error != nil {
+			log.Fatal(error)
+			c.JSON(http.StatusNotFound, gin.H{
+				"status":       http.StatusNotFound,
+				"message":      "student not found",
+				"beforeDelete": nil,
+				"afterDelete":  nil,
+			})
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"status":       http.StatusOK,
+			"message":      "1 student removed successfully",
+			"beforeDelete": beforeDelete,
+			"afterDelete":  afterDelete,
+		})
+	} else {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"status":  http.StatusBadRequest,
+			"message": "id is not valid",
+		})
 	}
-	c.JSON(http.StatusOK, gin.H{
-		"status":       http.StatusOK,
-		"message":      "1 student removed successfully",
-		"beforeDelete": beforeDelete,
-		"afterDelete":  afterDelete,
-	})
 }
